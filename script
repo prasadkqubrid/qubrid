@@ -1,0 +1,64 @@
+
+pipeline {
+    agent any
+ 
+    stages {
+        stage('Checkout') {
+            steps {
+                script {
+                    cleanWs()
+                    checkout([$class: 'GitSCM', branches: [[name: 'Master']], userRemoteConfigs: [[url: 'https://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@github.com/Qubrid-Quantum/qubrid-frontend.git']]])
+                    
+                    // Get commit details
+                    def commitInfo = sh(script: 'git log -1 --pretty=format:"%h %an %s %ci"', returnStdout: true).trim()
+                    currentBuild.description = commitInfo
+                    
+                    // Extract commit message
+                    def commitMessage = sh(script: 'git log -1 --pretty=format:"%s"', returnStdout: true).trim()
+                    
+                    // Check if commit message contains keywords to determine the type of change
+                    def changeType = 'hotfix'
+                    if (commitMessage.contains('fix') || commitMessage.contains('bug')) {
+                        changeType = 'Bug Fix'
+                    } else if (commitMessage.contains('new') || commitMessage.contains('add')) {
+                        changeType = 'New Changes'
+                    }
+                    
+                    // Append developer name, commit message, type of change, and date time to build description
+                    currentBuild.description += "\nDeveloper: ${commitInfo.split(' ')[1]}"
+                    currentBuild.description += "\nCommit Message: ${commitMessage}"
+                    currentBuild.description += "\nChange Type: ${changeType}"
+                }
+            }
+        }
+ 
+        stage('Build and Test') {
+            steps {
+                script {
+                    try {
+                        sh 'npm install'
+                        sh 'npm run build'
+                    } catch (Exception e) {
+                        currentBuild.description += "\nBuild and Test Error: ${e}"
+                        throw e
+                    }
+                }
+            }
+        }
+ 
+        stage('Deploy') {
+            steps {
+                script {
+                    try {
+                        sh 'ssh ubuntu@3.86.175.234 "cd /var/www/ && sudo chown -R ubuntu:ubuntu html && exit"'
+                        sh 'scp -r /var/lib/jenkins/workspace/Dev_Pipeline/build/* ubuntu@3.86.175.234:/var/www/html'
+                        sh 'ssh ubuntu@3.86.175.234 "cd /var/www/ && sudo chown -R www-data:www-data html "'
+                    } catch (Exception e) {
+                        currentBuild.description += "\nDeploy Error: ${e}"
+                        throw e
+                    }
+                }
+            }
+        }
+    }
+}
